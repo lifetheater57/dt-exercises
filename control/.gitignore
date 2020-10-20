@@ -1,0 +1,6 @@
+*build
+*devel
+*logs
+*.catkin_tools
+assets/config
+*.ipynb_checkpoints
