@@ -95,9 +95,12 @@ class LaneControllerNode(DTROS):
             # TODO: make K configurable
             K = 0.6
             target = np.dot(self.rotation2D(-self.pose_msg.phi), np.array([K * self.car_control_msg.v, 0]))
+            
             csv_string += str(round(target[0], 3)) + ','
             csv_string += str(round(target[1], 3)) + ','
             #print("target:" + str(target))
+            
+            # TODO: check if the target is out of the camera scope
             segments_dist = np.zeros(len(self.segment_list))
             
             # List distances from segments to target
@@ -109,16 +112,20 @@ class LaneControllerNode(DTROS):
                     v = self.mat2x2(seg.points)
                     v -= target
                     segments_dist[i] = np.linalg.norm(v.mean(axis=0))
+            
             csv_string += str(round(segments_dist.min(), 3)) + ','
             csv_string += str(round(segments_dist.max(initial=0.0, where=~np.isnan(segments_dist)), 3)) + ','
             
             # Initialize the cluster with the segment closest to the target 
             cluster_center = self.segment_list[segments_dist.argmin()].points
             cluster_center = self.mat2x2(cluster_center).mean(axis=0)
+            
             csv_string += str(round(cluster_center[0], 3)) + ','
             csv_string += str(round(cluster_center[1], 3)) + ','
-            colors = { 0 : 'WHITE', 1 : 'YELLOW' }
+            colors = { self.segment_list[0].WHITE : 'WHITE', 
+                       self.segment_list[0].YELLOW : 'YELLOW' }
             csv_string += colors[self.segment_list[segments_dist.argmin()].color] + ','
+            
             cluster_segs = []
 
             # Find segments in the cluster
@@ -128,6 +135,7 @@ class LaneControllerNode(DTROS):
                     v = self.mat2x2(seg.points)
                     v -= cluster_center
                     # TODO: make radius configurable
+                        # TODO: increase it if cluster_center color is WHITE?
                     if np.linalg.norm(v.mean(axis=0)) < 0.05:
                         cluster_segs.append(seg)
             
@@ -158,15 +166,15 @@ class LaneControllerNode(DTROS):
             # Compute the mean of both the position and the normal of the cluster
             cluster_pos_mean = cluster_segs_pos.mean(axis=0)
             cluster_n_mean = cluster_segs_n.mean(axis=0)
-            csv_string += str(round(cluster_pos_mean[0], 3)) + ','
-            csv_string += str(round(cluster_pos_mean[1], 3)) + ','
-            csv_string += str(round(cluster_n_mean[0], 3)) + ','
-            csv_string += str(round(cluster_n_mean[1], 3)) + ','
 
             # Find the middle of the lane with the mean normal and position
             #print("lane_mid = cluster_pos_mean:" + str(cluster_pos_mean) 
             #    + " + 0.105 * cluster_n_mean:" + str(cluster_n_mean))
             lane_mid = cluster_pos_mean + 0.105 * cluster_n_mean
+            csv_string += str(round(cluster_pos_mean[0], 3)) + ','
+            csv_string += str(round(cluster_pos_mean[1], 3)) + ','
+            csv_string += str(round(cluster_n_mean[0], 3)) + ','
+            csv_string += str(round(cluster_n_mean[1], 3)) + ','
             #print("lane_mid:" + str(lane_mid))
             csv_string += str(round(lane_mid[0], 3)) + ','
             csv_string += str(round(lane_mid[1], 3)) + ','
@@ -183,6 +191,7 @@ class LaneControllerNode(DTROS):
                 v = 0
             if w == np.nan:
                 w = 0
+            
             csv_string += str(round(v, 3)) + ','
             csv_string += str(round(L, 3)) + ','
             csv_string += str(round(sin_alpha, 3)) + ','
