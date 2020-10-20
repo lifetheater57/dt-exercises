@@ -55,7 +55,7 @@ class LaneControllerNode(DTROS):
                                                  self.cbSegmentList,
                                                  queue_size=1)
 
-        print("target_x,seg_min_dist,seg_max_dist,cluster_x,cluster_y,cluster_c,cluster_pos_mean_x,cluster_pos_mean_y,cluster_n_mean_x,cluster_n_mean_y,lane_mid_x,lane_mid_y,v,L,sin_alpha,w,seg_list_size,cluster_size")
+        print("d,phi,target_x,target_y,seg_min_dist,seg_max_dist,cluster_x,cluster_y,cluster_c,cluster_pos_mean_x,cluster_pos_mean_y,cluster_n_mean_x,cluster_n_mean_y,lane_mid_x,lane_mid_y,v,L,sin_alpha,w,seg_list_size,cluster_size")
         self.log("Initialized!")
 
     def cbLanePoses(self, input_pose_msg):
@@ -67,6 +67,8 @@ class LaneControllerNode(DTROS):
         csv_string = ""
         
         self.pose_msg = input_pose_msg
+        csv_string += str(round(self.pose_msg.d, 3)) + ','
+        csv_string += str(round(self.pose_msg.phi, 3)) + ','
         
         if len(self.segment_list) == 0:
             # TODO: Set a default non-zero value?
@@ -94,6 +96,7 @@ class LaneControllerNode(DTROS):
             K = 0.6
             target = np.dot(self.rotation2D(-self.pose_msg.phi), np.array([K * self.car_control_msg.v, 0]))
             csv_string += str(round(target[0], 3)) + ','
+            csv_string += str(round(target[1], 3)) + ','
             #print("target:" + str(target))
             segments_dist = np.zeros(len(self.segment_list))
             
@@ -114,7 +117,8 @@ class LaneControllerNode(DTROS):
             cluster_center = self.mat2x2(cluster_center).mean(axis=0)
             csv_string += str(round(cluster_center[0], 3)) + ','
             csv_string += str(round(cluster_center[1], 3)) + ','
-            csv_string += str(self.segment_list[segments_dist.argmin()].color) + ','
+            colors = { 0 : 'WHITE', 1 : 'YELLOW' }
+            csv_string += colors[self.segment_list[segments_dist.argmin()].color] + ','
             cluster_segs = []
 
             # Find segments in the cluster
