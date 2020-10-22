@@ -70,43 +70,31 @@ class LaneControllerNode(DTROS):
         csv_string += str(round(self.pose_msg.d, 3)) + ','
         csv_string += str(round(self.pose_msg.phi, 3)) + ','
         
-        if len(self.segment_list) == 0:
+        segment_list = self.segment_list
+        
+        # Initialize default values
             # TODO: Set a default non-zero value?
             v = 0
             w = 0
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(round(v, 3)) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(np.nan) + ','
-            csv_string += str(round(w, 3)) + ','
-        else:
+        
+        if len(segment_list) > 0:
             # Initialize target point and list of distances to it
-            # TODO: make K configurable
+            # TODO: make K, min L_0 configurable
             K = 0.6
-            target = np.dot(self.rotation2D(-self.pose_msg.phi), np.array([K * self.car_control_msg.v, 0]))
+            L_0 = max(0.15, K * self.car_control_msg.v)
+            target = np.dot(self.rotation2D(-self.pose_msg.phi), np.array([L_0, 0]))
             
             csv_string += str(round(target[0], 3)) + ','
             csv_string += str(round(target[1], 3)) + ','
             #print("target:" + str(target))
             
             # TODO: check if the target is out of the camera scope
-            segments_dist = np.zeros(len(self.segment_list))
+            segments_dist = np.zeros(len(segment_list))
             
             # List distances from segments to target
-            for i, seg in enumerate(self.segment_list):
+            for i, seg in enumerate(segment_list):
                 # Set segment that are not white or yellow very far to exclude them
-                if seg.color != seg.WHITE and seg.color != seg.YELLOW:
+                if seg.color != seg.WHITE:# and seg.color != seg.YELLOW:
                     segments_dist[i] = np.inf
                 else:
                     v = self.mat2x2(seg.points)
@@ -116,27 +104,28 @@ class LaneControllerNode(DTROS):
             csv_string += str(round(segments_dist.min(), 3)) + ','
             csv_string += str(round(segments_dist.max(initial=0.0, where=~np.isnan(segments_dist)), 3)) + ','
             
+            if len(segments_dist) > 0:
             # Initialize the cluster with the segment closest to the target 
-            cluster_center = self.segment_list[segments_dist.argmin()].points
+                cluster_center = segment_list[segments_dist.argmin()].points
             cluster_center = self.mat2x2(cluster_center).mean(axis=0)
             
             csv_string += str(round(cluster_center[0], 3)) + ','
             csv_string += str(round(cluster_center[1], 3)) + ','
-            colors = { self.segment_list[0].WHITE : 'WHITE', 
-                       self.segment_list[0].YELLOW : 'YELLOW' }
-            csv_string += colors[self.segment_list[segments_dist.argmin()].color] + ','
+                colors = { segment_list[0].WHITE : 'WHITE', 
+                        segment_list[0].YELLOW : 'YELLOW' }
+                csv_string += colors[segment_list[segments_dist.argmin()].color] + ','
             
             cluster_segs = []
 
             # Find segments in the cluster
-            for i, seg in enumerate(self.segment_list):
+                for i, seg in enumerate(segment_list):
                 # Only keep white and yellow segments
-                if seg.color == seg.WHITE or seg.color == seg.YELLOW:
+                    if seg.color == seg.WHITE:# or seg.color == seg.YELLOW:
                     v = self.mat2x2(seg.points)
                     v -= cluster_center
                     # TODO: make radius configurable
                         # TODO: increase it if cluster_center color is WHITE?
-                    if np.linalg.norm(v.mean(axis=0)) < 0.05:
+                        if np.linalg.norm(v.mean(axis=0)) < 0.02:
                         cluster_segs.append(seg)
             
             # Initialize list of position and normal of segments in the cluster
@@ -182,11 +171,14 @@ class LaneControllerNode(DTROS):
             # TODO: If target point gets too near of ourself, gradually increase look ahead distance?
             
             # Use the point in the PPC algorithm
-            v = 0.5
             L = np.linalg.norm(lane_mid)
             #print("sin_alpha = lane_mid[1]:" + str(lane_mid[1]) + " / L:" + str(L))
             sin_alpha = lane_mid[1] / L
-            w = (2 * v * sin_alpha) / L
+                w = (2 * self.car_control_msg.v * sin_alpha) / L
+                
+                # Adapt linear speed to angular speed
+                v = min(1.0, 0.5 / abs(w))
+
             if v == np.nan:
                 v = 0
             if w == np.nan:
@@ -195,6 +187,37 @@ class LaneControllerNode(DTROS):
             csv_string += str(round(v, 3)) + ','
             csv_string += str(round(L, 3)) + ','
             csv_string += str(round(sin_alpha, 3)) + ','
+            csv_string += str(round(w, 3)) + ','
+            else:
+                csv_string += str(np.nan) + ','
+                csv_string += str(np.nan) + ','
+                csv_string += str(np.nan) + ','
+                csv_string += str(np.nan) + ','
+                csv_string += str(np.nan) + ','
+                csv_string += str(np.nan) + ','
+                csv_string += str(np.nan) + ','
+                csv_string += str(np.nan) + ','
+                csv_string += str(np.nan) + ','
+                csv_string += str(round(v, 3)) + ','
+                csv_string += str(np.nan) + ','
+                csv_string += str(np.nan) + ','
+                csv_string += str(round(w, 3)) + ','
+        else:
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(round(v, 3)) + ','
+            csv_string += str(np.nan) + ','
+            csv_string += str(np.nan) + ','
             csv_string += str(round(w, 3)) + ','
             
             
@@ -206,8 +229,8 @@ class LaneControllerNode(DTROS):
         car_control_msg.omega = w
 
         #print('v=' + str(v) + ", w=" + str(w))
-        #print('seg_list length: ' + str(len(self.segment_list)) + ', cluster length: ' + str(len(cluster_segs)))
-        csv_string += str(len(self.segment_list)) + ','
+        #print('seg_list length: ' + str(len(segment_list)) + ', cluster length: ' + str(len(cluster_segs)))
+        csv_string += str(len(segment_list)) + ','
         csv_string += str(len(cluster_segs))
         print(csv_string)
 
