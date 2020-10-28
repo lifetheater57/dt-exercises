@@ -101,9 +101,9 @@ class LaneControllerNode(DTROS):
                 if seg.color != seg.WHITE:# and seg.color != seg.YELLOW:
                     segments_dist[i] = np.inf
                 else:
-                    v = self.mat2x2(seg.points)
-                    v -= target
-                    segments_dist[i] = np.linalg.norm(v.mean(axis=0))
+                    points = self.mat2x2(seg.points)
+                    points -= target
+                    segments_dist[i] = np.linalg.norm(points.mean(axis=0))
             
             csv_string += str(round(segments_dist.min(), 3)) + ','
             csv_string += str(round(segments_dist.max(initial=0.0, where=~np.isnan(segments_dist)), 3)) + ','
@@ -123,13 +123,11 @@ class LaneControllerNode(DTROS):
 
             # Find segments in the cluster
                 for i, seg in enumerate(segment_list):
-                # Only keep white and yellow segments
-                    if seg.color == seg.WHITE:# or seg.color == seg.YELLOW:
-                    v = self.mat2x2(seg.points)
-                    v -= cluster_center
+                        points = self.mat2x2(seg.points)
+                        points -= cluster_center
                     # TODO: make radius configurable
                         # TODO: increase it if cluster_center color is WHITE?
-                        if np.linalg.norm(v.mean(axis=0)) < 0.02:
+                        if np.linalg.norm(points.mean(axis=0)) < 0.02:
                         cluster_segs.append(seg)
             
             # Initialize list of position and normal of segments in the cluster
