@@ -73,16 +73,20 @@ class LaneControllerNode(DTROS):
         segment_list = self.segment_list
         
         # Initialize default values
-            # TODO: Set a default non-zero value?
-            v = 0
-            w = 0
         
-        if len(segment_list) > 0:
+            # TODO: Set a default non-zero value?
+        #v = 0
+        #w = 0
+        
             # Initialize target point and list of distances to it
             # TODO: make K, min L_0 configurable
             K = 0.6
             L_0 = max(0.15, K * self.car_control_msg.v)
             target = np.dot(self.rotation2D(-self.pose_msg.phi), np.array([L_0, 0]))
+            
+        v, w = self.getControlValues(target)
+        
+        if len(segment_list) > 0:
             
             csv_string += str(round(target[0], 3)) + ','
             csv_string += str(round(target[1], 3)) + ','
@@ -170,19 +174,7 @@ class LaneControllerNode(DTROS):
 
             # TODO: If target point gets too near of ourself, gradually increase look ahead distance?
             
-            # Use the point in the PPC algorithm
-            L = np.linalg.norm(lane_mid)
-            #print("sin_alpha = lane_mid[1]:" + str(lane_mid[1]) + " / L:" + str(L))
-            sin_alpha = lane_mid[1] / L
-                w = (2 * self.car_control_msg.v * sin_alpha) / L
-                
-                # Adapt linear speed to angular speed
-                v = min(1.0, 0.5 / abs(w))
-
-            if v == np.nan:
-                v = 0
-            if w == np.nan:
-                w = 0
+                v, w = self.getControlValues(lane_mid)
             
             csv_string += str(round(v, 3)) + ','
             csv_string += str(round(L, 3)) + ','
@@ -276,6 +268,23 @@ class LaneControllerNode(DTROS):
         
         c, s = np.cos(angle), np.sin(angle)
         return np.array(((c, -s), (s, c)))
+
+    def getControlValues(self, target):
+        # Use the point in the PPC algorithm
+        L = np.linalg.norm(target)
+        #print("sin_alpha = target[1]:" + str(target[1]) + " / L:" + str(L))
+        sin_alpha = target[1] / L
+        w = (2 * self.car_control_msg.v * sin_alpha) / L
+        
+        # Adapt linear speed to angular speed
+        v = min(1.0, 0.5 / abs(w))
+
+        if v == np.nan:
+            v = 0
+        if w == np.nan:
+            w = 0
+
+        return v, w
 
 
 if __name__ == "__main__":
