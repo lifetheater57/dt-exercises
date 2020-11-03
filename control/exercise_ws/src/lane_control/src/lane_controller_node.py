@@ -82,11 +82,12 @@ class LaneControllerNode(DTROS):
             # TODO: make K, min L_0 configurable
             K = 0.6
             L_0 = max(0.15, K * self.car_control_msg.v)
-            target = np.dot(self.rotation2D(-self.pose_msg.phi), np.array([L_0, 0]))
+        offset = np.dot(self.rotation2D(-self.pose_msg.phi), np.array([0, -self.pose_msg.d]))
+        target = offset + np.dot(self.rotation2D(-self.pose_msg.phi), np.array([L_0, 0]))
             
         v, w = self.getControlValues(target)
         
-        if len(segment_list) > 0:
+        if len(segment_list) > 0 and False:
             
             csv_string += str(round(target[0], 3)) + ','
             csv_string += str(round(target[1], 3)) + ','
@@ -210,19 +211,19 @@ class LaneControllerNode(DTROS):
             csv_string += str(np.nan) + ','
             csv_string += str(round(w, 3)) + ','
             
-            
+        # Create control message
         car_control_msg = Twist2DStamped()
         car_control_msg.header = self.pose_msg.header
 
-        # TODO This needs to get changed
+        # Set the control values
         car_control_msg.v = v
         car_control_msg.omega = w
 
         #print('v=' + str(v) + ", w=" + str(w))
         #print('seg_list length: ' + str(len(segment_list)) + ', cluster length: ' + str(len(cluster_segs)))
-        csv_string += str(len(segment_list)) + ','
-        csv_string += str(len(cluster_segs))
-        print(csv_string)
+        #csv_string += str(len(segment_list)) + ','
+        #csv_string += str(len(cluster_segs))
+        #print(csv_string)
 
         # Save the message to use at next iteration
         self.car_control_msg = car_control_msg
@@ -268,14 +269,21 @@ class LaneControllerNode(DTROS):
         return np.array(((c, -s), (s, c)))
 
     def getControlValues(self, target):
+        # TODO: make min, max speed configurable
+        v_min, v_max = 0.5, 1.0
+        v_range = v_max - v_min
+        
         # Use the point in the PPC algorithm
         L = np.linalg.norm(target)
         #print("sin_alpha = target[1]:" + str(target[1]) + " / L:" + str(L))
-        sin_alpha = target[1] / L
-        w = (2 * self.car_control_msg.v * sin_alpha) / L
         
-        # Adapt linear speed to angular speed
-        v = min(1.0, 0.5 / abs(w))
+        # Adapt linear speed to anticipated angular speed
+        cos_alpha = target[0] / L
+        v = 0.5#v_min + np.power(cos_alpha, 2) * v_range
+        
+        # Compute omega as per PPC algorithm
+        sin_alpha = target[1] / L
+        w = (2 * v * sin_alpha) / L
 
         if v == np.nan:
             v = 0
