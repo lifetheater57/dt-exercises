@@ -110,8 +110,7 @@ class LaneControllerNode(DTROS):
                 x = L_0
                 x, y = self.getLaneMid(x, segment_list, target[1])
                 v, w = self.getControlValues(np.array([x, y]))
-            el
-            if mode == MODES['path']:
+            elif mode == MODES['path']:
                 lane_mid_candidats = self.getDirectCandidats(segment_list)
                 #lane_mid_candidats = self.getClusterCandidats(segment_list)
                 
