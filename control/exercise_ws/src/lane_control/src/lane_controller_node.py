@@ -399,6 +399,43 @@ class LaneControllerNode(DTROS):
 
         return v, w
 
+    def getClusters(self, segment_list):
+        segment = Segment()
+        lists_by_color = self.splitByColor(segment_list)
+
+        cluster_pos = []
+        cluster_normal = []
+        for c in { segment.WHITE, segment.YELLOW }:
+            point_list = self.getPointList(lists_by_color[c])
+            normal_list = self.getNormalList(lists_by_color[c], c)
+            
+            for i in range(len(point_list)):
+                rel_pos = point_list - point_list[i]
+                mask = np.linalg.norm(rel_pos, axis=1) < 0.02
+                cluster_pos.append(point_list[mask].mean(axis=0))
+                cluster_normal.append(normal_list[mask].mean(axis=0))
+        
+        return np.array(cluster_pos), np.array(cluster_normal)
+
+    def splitByColor(self, segment_list):
+        dummy_segment = Segment()
+        lists_by_color = {
+            dummy_segment.WHITE : [],
+            dummy_segment.YELLOW : [],
+            dummy_segment.RED : []
+        }
+        
+        for seg in segment_list:
+            lists_by_color[seg.color].append(seg)
+
+        return lists_by_color
+    
+    def getPointList(self, segment_list):
+        return np.array([self.segPos2D(seg.points) for seg in segment_list])
+
+    def getNormalList(self, segment_list, color=np.nan):
+        return np.array([self.segNormal2D(seg.points, color) for seg in segment_list])
+
     def getDirectCandidats(self, segment_list):
         lane_mid_candidats = np.zeros((len(segment_list), 2))
         to_remove_indexes = []
@@ -413,6 +450,10 @@ class LaneControllerNode(DTROS):
                 lane_mid_candidats[i][:] = position + 0.105 * normal
         
         return np.delete(lane_mid_candidats, to_remove_indexes, axis=0)
+
+    def getClusterCandidats(self, segment_list):
+        positions, normals = self.getClusters(segment_list)
+        return positions + 0.105 * normals
 
 if __name__ == "__main__":
     # Initialize the node
