@@ -4,6 +4,7 @@ import rospy
 
 from duckietown.dtros import DTROS, NodeType, TopicType, DTParam, ParamType
 from duckietown_msgs.msg import Twist2DStamped, LanePose, WheelsCmdStamped, BoolStamped, FSMState, StopLineReading, Segment, SegmentList
+from geometry_msgs.msg import Point
 
 from lane_controller.controller import PurePursuitLaneController
 
@@ -72,6 +73,7 @@ class LaneControllerNode(DTROS):
             'naive' : 0,
             'path' : 1,
             'cluster' : 2,
+            'lwlr' : 3
         }
         self.count = 1#(self.count + 1) % 5
         csv_string = ""
@@ -88,7 +90,7 @@ class LaneControllerNode(DTROS):
         #v = 0
         #w = 0
         
-        mode = MODES['naive']
+        mode = MODES['lwlr']
             # Initialize target point and list of distances to it
             # TODO: make K, min L_0 configurable
             K = 0.6
@@ -104,6 +106,11 @@ class LaneControllerNode(DTROS):
             csv_string += str(round(target[1], 3)) + ','
             #print("target:" + str(target))
             
+            if mode == MODES["lwlr"]:
+                x = L_0
+                x, y = self.getLaneMid(x, segment_list, target[1])
+                v, w = self.getControlValues(np.array([x, y]))
+            el
             if mode == MODES['path']:
                 lane_mid_candidats = self.getDirectCandidats(segment_list)
                 #lane_mid_candidats = self.getClusterCandidats(segment_list)
@@ -454,6 +461,95 @@ class LaneControllerNode(DTROS):
     def getClusterCandidats(self, segment_list):
         positions, normals = self.getClusters(segment_list)
         return positions + 0.105 * normals
+
+    # Source of LWLR code: https://www.geeksforgeeks.org/implementation-of-locally-weighted-linear-regression/
+    # kernel smoothing function
+    
+    # function to calculate W weight diagnal Matric used in calculation of predictions 
+    def get_WeightMatrix_for_LOWES(self, query_point, training_examples, Bandwidth): 
+        # M is the No of training examples 
+        M = training_examples.shape[0] 
+        # Initialising W with identity matrix 
+        W = np.mat(np.eye(M)) 
+        # calculating weights for query points 
+        for i in range(M): 
+            xi = training_examples[i] 
+            denominator = (-2 * Bandwidth * Bandwidth) 
+            W[i, i] = np.exp(np.dot((xi-query_point), (xi-query_point).T)/denominator) 
+        return W 
+
+    # function to make predictions 
+    def predict(self, training_examples, Y, query_x, Bandwidth): 
+        M = training_examples.shape[0] 
+        if training_examples.ndim == 1:
+            training_examples = np.reshape(training_examples, (M, 1))
+        if Y.ndim == 1:
+            Y = np.reshape(Y, (M, 1))
+        all_ones = np.ones((M, 1)) 
+        X_ = np.hstack((training_examples, all_ones)) 
+        qx = np.mat([query_x, 1]) 
+        W = self.get_WeightMatrix_for_LOWES(qx, X_, Bandwidth) 
+        # calculating parameter theta 
+        theta = np.linalg.pinv(X_.T*(W * X_))*(X_.T*(W * Y)) 
+        # calculating predictions 
+        pred = np.dot(qx, theta) 
+        return theta, pred[0, 0]
+
+    def getLaneMid(self, x, segment_list, default):
+        # Initialize a dummy segment to access Segment's constants
+        segment = Segment()
+        
+        # Split the segments according to there color
+        lists_by_color = self.splitByColor(segment_list)
+
+        y = np.array([np.nan, np.nan])
+        
+        # Estimate the y position corresponding to the requested x position
+        # given the segments near the DB
+        for c in { segment.WHITE, segment.YELLOW }:
+            if len(lists_by_color[c]) > 10:
+                y[c] = self.getLaneMidHelper(x, lists_by_color[c])
+        
+        if np.isnan(y).all():
+            # Not enough information was available to approximate the y value
+            return x, default
+        elif np.isnan(y).any():
+            # Only the line of one side was detected 
+            color = int(np.argwhere(~np.isnan(y)))
+            points = [Point(), Point()]
+            # Finding y values around the x value of interest to estimate the 
+            # normal at that point
+            points[0].x = np.maximum(0.0, x - 0.02)
+            points[1].x = x + 0.02
+            points[0].y = self.getLaneMidHelper(points[0].x, lists_by_color[color])
+            points[1].y = self.getLaneMidHelper(points[1].x, lists_by_color[color])
+            # Get normal from point around the point of interest
+            normal = self.segNormal2D(points, color)
+            # Find the estimated middle of the lane given y estimated at x and 
+            # the normal estimated at the same point.
+            lane_mid = np.array([x, y[color]]) + 0.105 * normal
+            return lane_mid[0], lane_mid[1]
+        else:
+            # Both lanes on both sides where detected
+            return x, y.mean()
+
+    def getLaneMidHelper(self, x, segment_list):
+        # Convert the segment list to a numpy array of positions
+        point_list = self.getPointList(segment_list)
+        # Filter out the points that are not near enough
+        mask = np.linalg.norm(point_list, axis=1) < 0.60
+        point_list = point_list[mask]
+        # Predict the value of y at x given the segment position on the list
+        sorted_point_list = point_list[point_list[:,0].argsort()]
+        _, value = self.predict(sorted_point_list[:, 0], sorted_point_list[:, 1], x, 0.2)
+        
+        """For debugging
+        string = ""
+        for i in np.linspace(0.1, 0.55, 10):
+            _, value = self.predict(sorted_point_list[:, 0], sorted_point_list[:, 1], i, 0.2)
+            string += str("{:0.4f}".format(value[0,0])) + ","
+        print(string[:-1])"""
+        return value
 
 if __name__ == "__main__":
     # Initialize the node
