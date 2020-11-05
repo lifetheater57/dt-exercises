@@ -64,6 +64,10 @@ class LaneControllerNode(DTROS):
         Args:
             input_pose_msg (:obj:`LanePose`): Message containing information about the current lane pose.
         """
+        MODES = {
+            'naive' : 0,
+            'cluster' : 2,
+        }
         csv_string = ""
         
         self.pose_msg = input_pose_msg
@@ -78,6 +82,7 @@ class LaneControllerNode(DTROS):
         #v = 0
         #w = 0
         
+        mode = MODES['naive']
             # Initialize target point and list of distances to it
             # TODO: make K, min L_0 configurable
             K = 0.6
@@ -87,7 +92,7 @@ class LaneControllerNode(DTROS):
             
         v, w = self.getControlValues(target)
         
-        if len(segment_list) > 0 and False:
+        if len(segment_list) > 0 and np.abs(self.pose_msg.d) < 0.15 and mode > MODES['naive']:
             
             csv_string += str(round(target[0], 3)) + ','
             csv_string += str(round(target[1], 3)) + ','
@@ -109,21 +114,24 @@ class LaneControllerNode(DTROS):
             csv_string += str(round(segments_dist.min(), 3)) + ','
             csv_string += str(round(segments_dist.max(initial=0.0, where=~np.isnan(segments_dist)), 3)) + ','
             
-            if len(segments_dist) > 0:
+            if len(segments_dist) > 0 and mode == MODES['cluster']:
             # Initialize the cluster with the segment closest to the target 
                 cluster_center = segment_list[segments_dist.argmin()].points
             cluster_center = self.mat2x2(cluster_center).mean(axis=0)
+                cluster_color = segment_list[segments_dist.argmin()].color
             
             csv_string += str(round(cluster_center[0], 3)) + ','
             csv_string += str(round(cluster_center[1], 3)) + ','
                 colors = { segment_list[0].WHITE : 'WHITE', 
                         segment_list[0].YELLOW : 'YELLOW' }
-                csv_string += colors[segment_list[segments_dist.argmin()].color] + ','
+                csv_string += colors[cluster_color] + ','
             
             cluster_segs = []
 
             # Find segments in the cluster
                 for i, seg in enumerate(segment_list):
+                    # Only keep segments of the cluster's color
+                    if seg.color == cluster_color:
                         points = self.mat2x2(seg.points)
                         points -= cluster_center
                     # TODO: make radius configurable
@@ -167,7 +175,6 @@ class LaneControllerNode(DTROS):
             csv_string += str(round(cluster_pos_mean[1], 3)) + ','
             csv_string += str(round(cluster_n_mean[0], 3)) + ','
             csv_string += str(round(cluster_n_mean[1], 3)) + ','
-            #print("lane_mid:" + str(lane_mid))
             csv_string += str(round(lane_mid[0], 3)) + ','
             csv_string += str(round(lane_mid[1], 3)) + ','
 
@@ -285,10 +292,10 @@ class LaneControllerNode(DTROS):
         sin_alpha = target[1] / L
         w = (2 * v * sin_alpha) / L
 
-        if v == np.nan:
-            v = 0
-        if w == np.nan:
-            w = 0
+        if np.isnan(v):
+            v = 0.0
+        if np.isnan(w):
+            w = 0.0
 
         return v, w
 
