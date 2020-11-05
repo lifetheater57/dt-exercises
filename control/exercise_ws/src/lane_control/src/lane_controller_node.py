@@ -7,6 +7,8 @@ from duckietown_msgs.msg import Twist2DStamped, LanePose, WheelsCmdStamped, Bool
 
 from lane_controller.controller import PurePursuitLaneController
 
+#import debugpy
+#debugpy.listen(("localhost", 5678))
 
 class LaneControllerNode(DTROS):
     """Computes control action.
@@ -51,10 +53,12 @@ class LaneControllerNode(DTROS):
                                                  queue_size=1)
 
         self.sub_segment_list = rospy.Subscriber("/agent/ground_projection_node/lineseglist_out",
+        #self.sub_segment_list = rospy.Subscriber("/agent/lane_filter_node/seglist_filtered",
                                                  SegmentList,
                                                  self.cbSegmentList,
                                                  queue_size=1)
 
+        self.count = 0
         print("d,phi,target_x,target_y,seg_min_dist,seg_max_dist,cluster_x,cluster_y,cluster_c,cluster_pos_mean_x,cluster_pos_mean_y,cluster_n_mean_x,cluster_n_mean_y,lane_mid_x,lane_mid_y,v,L,sin_alpha,w,seg_list_size,cluster_size")
         self.log("Initialized!")
 
@@ -68,6 +72,7 @@ class LaneControllerNode(DTROS):
             'naive' : 0,
             'cluster' : 2,
         }
+        self.count = 1#(self.count + 1) % 5
         csv_string = ""
         
         self.pose_msg = input_pose_msg
@@ -230,7 +235,8 @@ class LaneControllerNode(DTROS):
         #print('seg_list length: ' + str(len(segment_list)) + ', cluster length: ' + str(len(cluster_segs)))
         #csv_string += str(len(segment_list)) + ','
         #csv_string += str(len(cluster_segs))
-        #print(csv_string)
+        if self.count == 0:
+            print(csv_string)
 
         # Save the message to use at next iteration
         self.car_control_msg = car_control_msg
