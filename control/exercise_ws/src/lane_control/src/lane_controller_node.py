@@ -106,6 +106,7 @@ class LaneControllerNode(DTROS):
             
             if mode == MODES['path']:
                 lane_mid_candidats = self.getDirectCandidats(segment_list)
+                #lane_mid_candidats = self.getClusterCandidats(segment_list)
                 
                 if self.count == 0:
                     print('x,y')
@@ -398,6 +399,20 @@ class LaneControllerNode(DTROS):
 
         return v, w
 
+    def getDirectCandidats(self, segment_list):
+        lane_mid_candidats = np.zeros((len(segment_list), 2))
+        to_remove_indexes = []
+
+        # List distances from segments to target
+        for i, seg in enumerate(segment_list):
+            if seg.color != seg.WHITE and seg.color != seg.YELLOW:
+                to_remove_indexes.append(i)
+            else:
+                position = self.segPos2D(seg.points)
+                normal = self.segNormal2D(seg.points, seg.color)
+                lane_mid_candidats[i][:] = position + 0.105 * normal
+        
+        return np.delete(lane_mid_candidats, to_remove_indexes, axis=0)
 
 if __name__ == "__main__":
     # Initialize the node
