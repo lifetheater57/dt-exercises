@@ -70,6 +70,7 @@ class LaneControllerNode(DTROS):
         """
         MODES = {
             'naive' : 0,
+            'path' : 1,
             'cluster' : 2,
         }
         self.count = 1#(self.count + 1) % 5
@@ -103,6 +104,37 @@ class LaneControllerNode(DTROS):
             csv_string += str(round(target[1], 3)) + ','
             #print("target:" + str(target))
             
+            if mode == MODES['path']:
+                lane_mid_candidats = self.getDirectCandidats(segment_list)
+                
+                if self.count == 0:
+                    print('x,y')
+                    for mid in lane_mid_candidats:
+                        print(str(mid[0]) + "," + str(mid[1]))
+
+                path = [offset]
+
+                # TODO: make initial dist configurable
+                next_target = offset + np.dot(self.rotation2D(-self.pose_msg.phi), np.array([0.1, 0]))
+                
+                while np.linalg.norm(path[-1]) < L_0 and len(lane_mid_candidats) > 0:
+                    chosen, lane_mid_candidats = self.nextPoint(next_target, path[-1], lane_mid_candidats)
+                    path.append(chosen)
+                    # TODO: find make dist to next point configurable
+                    diff_points = path[-1] - path[-2]
+                    if np.linalg.norm(diff_points) == 0:
+                        path.pop()
+                    else:
+                        next_target = path[-1] + diff_points / np.linalg.norm(diff_points) * 0.05
+
+                if self.count == 0:
+                    print('path_x,path_y')
+                    for point in path:
+                        print(str(point[0]) + "," + str(point[1]))
+                
+                if (len(path) > 1):
+                    v, w = self.getControlValues(path[-1])
+
             # TODO: check if the target is out of the camera scope
             segments_dist = np.zeros(len(segment_list))
             
@@ -280,6 +312,67 @@ class LaneControllerNode(DTROS):
         
         c, s = np.cos(angle), np.sin(angle)
         return np.array(((c, -s), (s, c)))
+
+    def segPos2D(self, points):
+        seg_points = self.mat2x2(points)
+        return seg_points.mean(axis=0)
+    
+    def segNormal2D(self, points, color=np.nan):
+        seg_points = self.mat2x2(points)
+        
+        t = seg_points[1] - seg_points[0]
+        t = t / np.linalg.norm(t)
+        t = np.reshape(t, (2,1))
+
+        normal = np.array([-t[1], t[0]])
+        normal = np.reshape(normal, (2))
+        
+        if ~np.isnan(color):
+            segment = Segment()
+            
+            if color == segment.YELLOW:
+                unit_vector = np.array([0, -1])
+            elif color == segment.WHITE:
+                unit_vector = np.array([0, 1])
+            else:
+                unit_vector = normal / np.linalg.norm(normal)
+
+            if np.dot(unit_vector, normal) < 0:
+                normal *= -1
+        
+        return normal
+
+    def nextPoint(self, point, previous_point, point_list):
+        # Compute distances to points in point_list
+        distance_list = self.distance(point, point_list)
+        prev_distance_list = self.distance(previous_point, point_list)
+        
+        # TODO: remove that check since it is now useless
+        if np.array_equal(point, np.zeros(2)):
+            index = distance_list.argmin()
+            return point_list[index], np.delete(point_list, index, axis=0)
+        else:
+            # Filter out the point closer to previous_point
+            distance_filter = (distance_list < prev_distance_list) & (prev_distance_list < 0.06)
+            new_point_list = point_list[distance_filter]
+            filtered_distance_list = distance_list[distance_filter]
+            
+            if len(filtered_distance_list) == 0:
+                return previous_point, new_point_list
+            else:
+                index = filtered_distance_list.argmin()
+
+                # Creating return values
+                point = new_point_list[index]
+                new_list = np.delete(new_point_list, index, axis=0)
+                point_list_complement = point_list[~distance_filter]
+                new_list = np.vstack((new_list, point_list_complement))
+                return point, new_list
+
+    def distance(self, point, point_list):
+        # Compute distance between point and points in point_list
+        rel_pos_list = point_list - point
+        return np.linalg.norm(rel_pos_list, axis=1)
 
     def getControlValues(self, target):
         # TODO: make min, max speed configurable
