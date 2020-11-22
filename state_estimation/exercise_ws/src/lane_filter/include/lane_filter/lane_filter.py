@@ -5,7 +5,8 @@ import numpy as np
 from scipy.ndimage.filters import gaussian_filter
 from math import floor, sqrt
 
-
+import debugpy
+debugpy.listen(("localhost", 5678))
 
 class LaneFilterHistogramKF():
     """ Generates an estimate of the lane pose.
@@ -53,12 +54,40 @@ class LaneFilterHistogramKF():
 
         self.encoder_resolution = 0
         self.wheel_radius = 0.0
+        self.baseline = 0
         self.initialized = False
+        
+        print("d_mean,phi_mean")
+
 
     def predict(self, dt, left_encoder_delta, right_encoder_delta):
         #TODO update self.belief based on right and left encoder data + kinematics
         if not self.initialized:
             return
+
+        # TODO: set them only once
+        DELTA_TICKS_TO_LIN_VEL = 2 * np.pi * self.wheel_radius / self.encoder_resolution
+        DELTA_TICKS_DIFF_TO_OMEGA = np.pi / (self.baseline * self.encoder_resolution)
+        
+        #delta_position = 0.5 * DELTA_TICKS_TO_LIN_VEL * (left_encoder_delta + right_encoder_delta)
+        delta_ticks_sum = right_encoder_delta + left_encoder_delta
+        delta_ticks_diff = right_encoder_delta - left_encoder_delta
+
+        if delta_ticks_diff != 0:    
+            d = self.baseline * delta_ticks_sum / delta_ticks_diff
+            omega = DELTA_TICKS_DIFF_TO_OMEGA * delta_ticks_diff
+
+            icc_x = -d * np.sin(self.belief['mean'][1])
+            icc_y = self.belief['mean'][0] + d * np.cos(self.belief['mean'][1])
+            icc_pos = np.array([icc_x, icc_y])
+
+            next_pos, next_ori = self.get_next_pose(icc_pos, d, self.belief['mean'][1], omega * dt)
+            self.belief['mean'][0] = next_pos[1]
+            self.belief['mean'][1] = next_ori
+            
+            # TODO: update the cov matrix
+            
+            print(str(self.belief['mean'][0]) + "," + str(self.belief['mean'][1]))
 
     def update(self, segments):
         # prepare the segments for each belief array
@@ -70,7 +99,9 @@ class LaneFilterHistogramKF():
 
         # TODO: Parameterize the measurement likelihood as a Gaussian
 
+
         # TODO: Apply the update equations for the Kalman Filter to self.belief
+        
 
 
     def getEstimate(self):
@@ -106,10 +137,6 @@ class LaneFilterHistogramKF():
         measurement_likelihood = measurement_likelihood / \
             np.sum(measurement_likelihood)
         return measurement_likelihood
-
-
-
-
 
     # generate a vote for one segment
     def generateVote(self, segment):
@@ -156,7 +183,7 @@ class LaneFilterHistogramKF():
         inlier_segments = []
         for segment in segments:
             d_s, phi_s, l, w = self.generateVote(segment)
-            if abs(d_s - d_max) < 3*self.delta_d and abs(phi_s - phi_max) < 3*self.delta_phi:
+            if abs(d_s - d_max) < 3 * self.delta_d and abs(phi_s - phi_max) < 3 * self.delta_phi:
                 inlier_segments.append(segment)
         return inlier_segments
 
@@ -186,3 +213,47 @@ class LaneFilterHistogramKF():
                 segmentsArray.append(segment)
 
         return segmentsArray
+
+    def get_next_pose(self, icc_pos, d, cur_theta, theta_displacement):
+        """
+        Compute the new next position in global frame
+        Input:
+            - icc_pos: numpy array of ICC position [x,y] in global frame
+            - d: distance from robot to the center of curvature
+            - cur_theta: current yaw angle in radian (float)
+            - theta_displacement: the amount of angular displacement if we apply w for 1 time step
+        Return:
+            - next_position:
+            - next_orientation:
+        """
+        
+        # First, let's define the ICC frame as the frame centered at the location of ICC
+        # and oriented such that its x-axis points towards the robot
+        
+        # Compute location of the point where the robot should be at (i.e., q)
+        # in the frame of ICC.
+        x_new_icc_frame = d * np.cos(theta_displacement)
+        y_new_icc_frame = d * np.sin(theta_displacement)
+        
+        # Build transformation matrix from origin to ICC
+        T_oc_angle = -(np.deg2rad(90) - cur_theta) # 
+        icc_x, icc_y = icc_pos[0], icc_pos[1]
+        T_oc = np.array([
+            [np.cos(T_oc_angle), -np.sin(T_oc_angle), icc_x],
+            [np.sin(T_oc_angle), np.cos(T_oc_angle), icc_y],
+            [0, 0, 1]
+        ]) # Transformation matrix from origin to the ICC
+        
+        # Build transformation matrix from ICC to the point where the robot should be at (i.e., q)
+        T_cq = np.array([
+            [1, 0, x_new_icc_frame],
+            [0, 1, y_new_icc_frame],
+            [0, 0, 1]
+        ]) # Transformation matrix from ICC to the point where the robot should be at (i.e., q)
+        
+        # Convert the local point q to the global frame
+        T_oq = np.dot(T_oc, T_cq) # Transformation matrix from origin to q
+        
+        next_position = np.array([T_oq[0,2], T_oq[1,2]])
+        next_orientation = cur_theta + theta_displacement
+        return next_position, next_orientation
