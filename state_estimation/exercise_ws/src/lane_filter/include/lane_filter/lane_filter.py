@@ -5,9 +5,6 @@ import numpy as np
 from scipy.ndimage.filters import gaussian_filter
 from math import floor, sqrt
 
-#import debugpy
-#debugpy.listen(("localhost", 5678))
-
 class LaneFilterHistogramKF():
     """ Generates an estimate of the lane pose.
 
@@ -60,8 +57,6 @@ class LaneFilterHistogramKF():
         self.wheel_radius = 0.0
         self.baseline = 0
         self.initialized = False
-        
-        print("categ,d_mean,phi_mean,mean_var,phi_var,custom1,custom2")
 
     def predict(self, dt, left_encoder_delta, right_encoder_delta):
         if not self.initialized or left_encoder_delta > 75 or right_encoder_delta > 75:
@@ -93,13 +88,6 @@ class LaneFilterHistogramKF():
         Q = np.diag([dist_error, omega_error]) + np.diag([0.0001, 0.0025])
         P_last = self.belief['covariance']
         self.belief['covariance'] = A @ P_last @ A.T + Q
-        """print("predict," 
-        + str(round(self.belief['mean'][0], 4)) + "," 
-        + str(round(self.belief['mean'][1], 4)) + "," 
-        + str(round(Q[0, 0], 4)) + "," 
-        + str(round(Q[1, 1], 4)) + "," 
-        + str(round(dist, 4)) + "," 
-        + str(round(omega, 4)))"""
 
     def update(self, segments):
         # prepare the segments for each belief array
@@ -135,13 +123,6 @@ class LaneFilterHistogramKF():
                 kalman_gain = predicted_Sigma @ H.T @ np.linalg.inv(residual_covariance)
                 self.belief['mean'] = predicted_mu + kalman_gain @ residual_mean
                 self.belief['covariance'] = predicted_Sigma - kalman_gain @ H @ predicted_Sigma
-                """print("update," 
-                + str(round(self.belief['mean'][0], 4)) + "," 
-                + str(round(self.belief['mean'][1], 4)) + "," 
-                + str(round(R[0, 0], 4)) + "," 
-                + str(round(R[1, 1], 4)) + "," 
-                + str(round(z[0], 4)) + "," 
-                + str(round(z[1], 4)))"""
             except np.linalg.LinAlgError:
                 print("Singular Matrix encountered.")
 
@@ -263,6 +244,5 @@ class LaneFilterHistogramKF():
         values, weights -- Numpy ndarrays with the same shape.
         """
         average = np.average(values, weights=weights)
-        # Fast and numerically precise:
         variance = np.average((values-average)**2, weights=weights)
         return (average, variance)
