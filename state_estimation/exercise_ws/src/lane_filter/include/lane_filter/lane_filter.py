@@ -57,52 +57,88 @@ class LaneFilterHistogramKF():
         self.baseline = 0
         self.initialized = False
         
-        print("d_mean,phi_mean")
-
+        print("categ,d_mean,phi_mean,mean_var,phi_var,custom1,custom2")
 
     def predict(self, dt, left_encoder_delta, right_encoder_delta):
-        #TODO update self.belief based on right and left encoder data + kinematics
         if not self.initialized:
             return
 
         # TODO: set them only once
-        DELTA_TICKS_TO_LIN_VEL = 2 * np.pi * self.wheel_radius / self.encoder_resolution
+        DELTA_TICKS_TO_DIST = 2 * np.pi * self.wheel_radius / self.encoder_resolution
         DELTA_TICKS_DIFF_TO_OMEGA = np.pi / (self.baseline * self.encoder_resolution)
         
-        #delta_position = 0.5 * DELTA_TICKS_TO_LIN_VEL * (left_encoder_delta + right_encoder_delta)
+        #delta_position = 0.5 * DELTA_TICKS_TO_DIST * (left_encoder_delta + right_encoder_delta)
         delta_ticks_sum = right_encoder_delta + left_encoder_delta
         delta_ticks_diff = right_encoder_delta - left_encoder_delta
 
-        if delta_ticks_diff != 0:    
-            d = self.baseline * delta_ticks_sum / delta_ticks_diff
-            omega = DELTA_TICKS_DIFF_TO_OMEGA * delta_ticks_diff
+        A = np.eye(2)
+        B = np.array([[np.sin(self.belief['mean'][1]), 0], [0, dt]])
 
-            icc_x = -d * np.sin(self.belief['mean'][1])
-            icc_y = self.belief['mean'][0] + d * np.cos(self.belief['mean'][1])
-            icc_pos = np.array([icc_x, icc_y])
+        dist = delta_ticks_sum / 2.0 * DELTA_TICKS_TO_DIST
+        omega = delta_ticks_diff * DELTA_TICKS_DIFF_TO_OMEGA
+        
+        x_t_last = self.belief['mean']
+        u_t = np.array([dist, omega])
 
-            next_pos, next_ori = self.get_next_pose(icc_pos, d, self.belief['mean'][1], omega * dt)
-            self.belief['mean'][0] = next_pos[1]
-            self.belief['mean'][1] = next_ori
-            
-            # TODO: update the cov matrix
-            
-            print(str(self.belief['mean'][0]) + "," + str(self.belief['mean'][1]))
+        self.belief['mean'] = A @ x_t_last + B @ u_t
+        
+        dist_error = 0.5 / self.encoder_resolution * DELTA_TICKS_TO_DIST
+        omega_error = 1.0 / self.encoder_resolution * DELTA_TICKS_DIFF_TO_OMEGA
+
+        P_last = self.belief['covariance']
+        Q = np.diag([dist_error, omega_error]) + np.diag([0.0001, 0.0025])
+        self.belief['covariance'] = A @ P_last @ A.T + Q
+        print("predict," 
+        + str(round(self.belief['mean'][0], 4)) + "," 
+        + str(round(self.belief['mean'][1], 4)) + "," 
+        + str(round(Q[0, 0], 4)) + "," 
+        + str(round(Q[1, 1], 4)) + "," 
+        + str(round(dist, 4)) + "," 
+        + str(round(omega, 4)))
 
     def update(self, segments):
         # prepare the segments for each belief array
         segmentsArray = self.prepareSegments(segments)
+        
         # generate all belief arrays
-
         measurement_likelihood = self.generate_measurement_likelihood(
             segmentsArray)
 
-        # TODO: Parameterize the measurement likelihood as a Gaussian
+        if measurement_likelihood is not None:
+            # TODO: Parameterize the measurement likelihood as a Gaussian
+            # TODO: Set them only once
+            D_GRID = np.mgrid[self.d_min:self.d_max:self.delta_d]
+            PHI_GRID = np.mgrid[self.phi_min:self.phi_max:self.delta_phi]
 
+            d_weights = measurement_likelihood.sum(axis=1)
+            d_mean, d_var = self.weighted_avg_and_var(D_GRID, weights=d_weights)
 
-        # TODO: Apply the update equations for the Kalman Filter to self.belief
-        
+            phi_weights = measurement_likelihood.sum(axis=0)
+            phi_mean, phi_var = self.weighted_avg_and_var(PHI_GRID, weights=phi_weights)
 
+            H = np.eye(2)
+            z = np.array([d_mean, phi_mean])
+            R = np.diag([d_var, phi_var])
+            
+            # TODO: Apply the update equations for the Kalman Filter to self.belief
+            predicted_mu = self.belief['mean']
+            predicted_Sigma = self.belief['covariance']
+            
+            try:
+                residual_mean = z - H @ predicted_mu
+                residual_covariance = H @ predicted_Sigma @ H.T + R
+                kalman_gain = predicted_Sigma @ H.T @ np.linalg.inv(residual_covariance)
+                self.belief['mean'] = predicted_mu + kalman_gain @ residual_mean
+                self.belief['covariance'] = predicted_Sigma - kalman_gain @ H @ predicted_Sigma
+                print("update," 
+                + str(round(self.belief['mean'][0], 4)) + "," 
+                + str(round(self.belief['mean'][1], 4)) + "," 
+                + str(round(R[0, 0], 4)) + "," 
+                + str(round(R[1, 1], 4)) + "," 
+                + str(round(z[0], 4)) + "," 
+                + str(round(z[1], 4)))
+            except np.linalg.LinAlgError:
+                print("Singular Matrix encountered.")
 
     def getEstimate(self):
         return self.belief
@@ -119,7 +155,7 @@ class LaneFilterHistogramKF():
         measurement_likelihood = np.zeros(grid[0].shape)
 
         for segment in segments:
-            d_i, phi_i, l_i, weight = self.generateVote(segment)
+            d_i, phi_i, l_i, _ = self.generateVote(segment)
 
             # if the vote lands outside of the histogram discard it
             if d_i > self.d_max or d_i < self.d_min or phi_i < self.phi_min or phi_i > self.phi_max:
@@ -257,3 +293,15 @@ class LaneFilterHistogramKF():
         next_position = np.array([T_oq[0,2], T_oq[1,2]])
         next_orientation = cur_theta + theta_displacement
         return next_position, next_orientation
+    
+    # Adapted from: https://stackoverflow.com/questions/2413522/weighted-standard-deviation-in-numpy
+    def weighted_avg_and_var(self, values, weights):
+        """
+        Return the weighted average and standard deviation.
+
+        values, weights -- Numpy ndarrays with the same shape.
+        """
+        average = np.average(values, weights=weights)
+        # Fast and numerically precise:
+        variance = np.average((values-average)**2, weights=weights)
+        return (average, variance)
