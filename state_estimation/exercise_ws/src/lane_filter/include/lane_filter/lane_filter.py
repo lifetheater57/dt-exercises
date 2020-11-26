@@ -5,13 +5,17 @@ import numpy as np
 from scipy.ndimage.filters import gaussian_filter
 from math import floor, sqrt
 
-import debugpy
-debugpy.listen(("localhost", 5678))
+#import debugpy
+#debugpy.listen(("localhost", 5678))
 
 class LaneFilterHistogramKF():
     """ Generates an estimate of the lane pose.
 
-    TODO: Fill in the details
+    The lane pose is estimated with a basic Kalman filter. The predict step use
+    a very simple kinematics model. In the update step, the detected segments 
+    in the image are used as measurement. They are grouped using a histogram 
+    filter. The value and variance of `d` and `phi` are estimated from that
+    histogram.
 
     Args:
         configuration (:obj:`List`): A list of the parameters for the filter
@@ -60,14 +64,13 @@ class LaneFilterHistogramKF():
         print("categ,d_mean,phi_mean,mean_var,phi_var,custom1,custom2")
 
     def predict(self, dt, left_encoder_delta, right_encoder_delta):
-        if not self.initialized:
+        if not self.initialized or left_encoder_delta > 75 or right_encoder_delta > 75:
             return
 
         # TODO: set them only once
         DELTA_TICKS_TO_DIST = 2 * np.pi * self.wheel_radius / self.encoder_resolution
         DELTA_TICKS_DIFF_TO_OMEGA = np.pi / (self.baseline * self.encoder_resolution)
         
-        #delta_position = 0.5 * DELTA_TICKS_TO_DIST * (left_encoder_delta + right_encoder_delta)
         delta_ticks_sum = right_encoder_delta + left_encoder_delta
         delta_ticks_diff = right_encoder_delta - left_encoder_delta
 
@@ -85,16 +88,18 @@ class LaneFilterHistogramKF():
         dist_error = 0.5 / self.encoder_resolution * DELTA_TICKS_TO_DIST
         omega_error = 1.0 / self.encoder_resolution * DELTA_TICKS_DIFF_TO_OMEGA
 
-        P_last = self.belief['covariance']
+        # Q is based on incertainty propagation and some noize corresponding
+        # approximately to noise in the best case observed on measurements 
         Q = np.diag([dist_error, omega_error]) + np.diag([0.0001, 0.0025])
+        P_last = self.belief['covariance']
         self.belief['covariance'] = A @ P_last @ A.T + Q
-        print("predict," 
+        """print("predict," 
         + str(round(self.belief['mean'][0], 4)) + "," 
         + str(round(self.belief['mean'][1], 4)) + "," 
         + str(round(Q[0, 0], 4)) + "," 
         + str(round(Q[1, 1], 4)) + "," 
         + str(round(dist, 4)) + "," 
-        + str(round(omega, 4)))
+        + str(round(omega, 4)))"""
 
     def update(self, segments):
         # prepare the segments for each belief array
@@ -105,7 +110,7 @@ class LaneFilterHistogramKF():
             segmentsArray)
 
         if measurement_likelihood is not None:
-            # TODO: Parameterize the measurement likelihood as a Gaussian
+            # Parameterize the measurement likelihood as a Gaussian
             # TODO: Set them only once
             D_GRID = np.mgrid[self.d_min:self.d_max:self.delta_d]
             PHI_GRID = np.mgrid[self.phi_min:self.phi_max:self.delta_phi]
@@ -120,7 +125,7 @@ class LaneFilterHistogramKF():
             z = np.array([d_mean, phi_mean])
             R = np.diag([d_var, phi_var])
             
-            # TODO: Apply the update equations for the Kalman Filter to self.belief
+            # Apply the update equations for the Kalman Filter to self.belief
             predicted_mu = self.belief['mean']
             predicted_Sigma = self.belief['covariance']
             
@@ -130,13 +135,13 @@ class LaneFilterHistogramKF():
                 kalman_gain = predicted_Sigma @ H.T @ np.linalg.inv(residual_covariance)
                 self.belief['mean'] = predicted_mu + kalman_gain @ residual_mean
                 self.belief['covariance'] = predicted_Sigma - kalman_gain @ H @ predicted_Sigma
-                print("update," 
+                """print("update," 
                 + str(round(self.belief['mean'][0], 4)) + "," 
                 + str(round(self.belief['mean'][1], 4)) + "," 
                 + str(round(R[0, 0], 4)) + "," 
                 + str(round(R[1, 1], 4)) + "," 
                 + str(round(z[0], 4)) + "," 
-                + str(round(z[1], 4)))
+                + str(round(z[1], 4)))"""
             except np.linalg.LinAlgError:
                 print("Singular Matrix encountered.")
 
@@ -250,50 +255,6 @@ class LaneFilterHistogramKF():
 
         return segmentsArray
 
-    def get_next_pose(self, icc_pos, d, cur_theta, theta_displacement):
-        """
-        Compute the new next position in global frame
-        Input:
-            - icc_pos: numpy array of ICC position [x,y] in global frame
-            - d: distance from robot to the center of curvature
-            - cur_theta: current yaw angle in radian (float)
-            - theta_displacement: the amount of angular displacement if we apply w for 1 time step
-        Return:
-            - next_position:
-            - next_orientation:
-        """
-        
-        # First, let's define the ICC frame as the frame centered at the location of ICC
-        # and oriented such that its x-axis points towards the robot
-        
-        # Compute location of the point where the robot should be at (i.e., q)
-        # in the frame of ICC.
-        x_new_icc_frame = d * np.cos(theta_displacement)
-        y_new_icc_frame = d * np.sin(theta_displacement)
-        
-        # Build transformation matrix from origin to ICC
-        T_oc_angle = -(np.deg2rad(90) - cur_theta) # 
-        icc_x, icc_y = icc_pos[0], icc_pos[1]
-        T_oc = np.array([
-            [np.cos(T_oc_angle), -np.sin(T_oc_angle), icc_x],
-            [np.sin(T_oc_angle), np.cos(T_oc_angle), icc_y],
-            [0, 0, 1]
-        ]) # Transformation matrix from origin to the ICC
-        
-        # Build transformation matrix from ICC to the point where the robot should be at (i.e., q)
-        T_cq = np.array([
-            [1, 0, x_new_icc_frame],
-            [0, 1, y_new_icc_frame],
-            [0, 0, 1]
-        ]) # Transformation matrix from ICC to the point where the robot should be at (i.e., q)
-        
-        # Convert the local point q to the global frame
-        T_oq = np.dot(T_oc, T_cq) # Transformation matrix from origin to q
-        
-        next_position = np.array([T_oq[0,2], T_oq[1,2]])
-        next_orientation = cur_theta + theta_displacement
-        return next_position, next_orientation
-    
     # Adapted from: https://stackoverflow.com/questions/2413522/weighted-standard-deviation-in-numpy
     def weighted_avg_and_var(self, values, weights):
         """
