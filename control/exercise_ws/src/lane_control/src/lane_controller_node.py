@@ -78,7 +78,7 @@ class LaneControllerNode(DTROS):
         mode = MODES['path']
         # Initialize target point and list of distances to it
         # TODO: make K, min L_0 configurable
-        K = 0.4
+        K = 0.8
         L_0 = max(0.15, K * self.car_control_msg.v)
         offset = np.dot(self.rotation2D(-self.pose_msg.phi), np.array([0, -self.pose_msg.d]))
         target = offset + np.dot(self.rotation2D(-self.pose_msg.phi), np.array([L_0, 0]))
