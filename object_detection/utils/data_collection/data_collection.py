@@ -58,7 +58,7 @@ class_colors = np.array(
 
 while True:
     obs = environment.reset()
-    environment.render(segment=True)
+    #environment.render(segment=True)
 
     nb_of_steps = 0
 
@@ -68,13 +68,13 @@ while True:
         obs, _, done, _ = environment.step(action) # Gives non-segmented obs as numpy array
         segmented_obs = environment.render_obs(True)  # Gives segmented obs as numpy array
 
-        environment.render(segment=int(nb_of_steps / 50) % 2 == 0)
+        #environment.render(segment=int(nb_of_steps / 50) % 2 == 0)
 
         image = cv.resize(segmented_obs, (224, 224))
         
         #display_img_seg_mask(obs, image, image)
         boxes, classes = clean_segmented_image(image)
-        save_npz(obs, boxes, classes)
+        save_npz(image, boxes, classes)
 
         nb_of_steps += 1
 
