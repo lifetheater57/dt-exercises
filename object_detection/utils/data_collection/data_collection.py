@@ -21,7 +21,7 @@ def save_npz(img, boxes, classes):
 
 def clean_segmented_image(seg_img):
     boxes = np.zeros((0, 4))
-    classes = np.zeros((0,1))
+    classes = np.zeros((0, 1))
 
     for i, color in enumerate(class_colors):
         mask = (seg_img == color).all(axis=2)
@@ -75,26 +75,42 @@ RENDER = False
 INTERACTIVE = False
 
 while True:
+    # Prepare environment
     obs = environment.reset()
-    #environment.render(segment=True)
-
     nb_of_steps = 0
 
+    # Render environment if required
+    if RENDER:
+        environment.render(segment=True)
+
     while True:
+        # Plan next action
         action = policy.predict(np.array(obs))
 
+        # Execute action and get visual feedback
         obs, _, done, _ = environment.step(action) # Gives non-segmented obs as numpy array
         segmented_obs = environment.render_obs(True)  # Gives segmented obs as numpy array
 
-        #environment.render(segment=int(nb_of_steps / 50) % 2 == 0)
+        # Generate boundings boxes and classes of objects of interest
+        boxes, classes = clean_segmented_image(segmented_obs)
 
-        image = cv.resize(segmented_obs, (224, 224))
+        # Visualize the camera feed and the bounding boxes if required
+        if RENDER:
+            environment.render(segment=int(nb_of_steps / 50) % 2 == 0)
+        if INTERACTIVE:
+            display_img_seg_mask(obs, segmented_obs, segmented_obs)
+
+        # Resize the image and the bounding boxes according to the specifications
+        image = cv.resize(obs, (224, 224))
+        boxes[:, [0, 2]] *= 224 / obs.shape[1]
+        boxes[:, [1, 3]] *= 224 / obs.shape[0]
         
-        #display_img_seg_mask(obs, image, image)
-        boxes, classes = clean_segmented_image(image)
+        # Save the frame and its associated values
         save_npz(image, boxes, classes)
 
+        # Next step in current sequence
         nb_of_steps += 1
 
+        # Go to next sequence if required
         if done or nb_of_steps > MAX_STEPS:
             break
