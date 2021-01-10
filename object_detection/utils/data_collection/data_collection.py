@@ -32,10 +32,24 @@ def clean_segmented_image(seg_img):
         for contour in contours:
             if cv.contourArea(contour) > 25:
                 x, y, w, h = cv.boundingRect(contour)
-                boxes = np.vstack([boxes, [x, y, x + w, y + h]])
-                classes = np.vstack([classes, i + 1])
+                x2 = x + w
+                y2 = y + h
                 
-                #cv.rectangle(seg_img, (x, y), (x + w, y + h), (0, 0, 255), 1)
+                if boxes.shape[0] == 0 or not np.bitwise_and(
+                    np.bitwise_and(
+                        x >= boxes[:, 0],
+                        y >= boxes[:, 1]
+                    ),
+                    np.bitwise_and(
+                        x2 <= boxes[:, 2],
+                        y2 <= boxes[:, 3]
+                    )
+                ).any():
+                    boxes = np.vstack([boxes, [x, y, x2, y2]])
+                    classes = np.vstack([classes, [i + 1]])
+
+                    if INTERACTIVE:
+                        cv.rectangle(seg_img, (x, y), (x2, y2), (15, 171, 216), 1)
 
     return boxes, classes
     
@@ -55,6 +69,10 @@ class_colors = np.array(
     ],
     dtype=np.uint8
 )
+
+# Session config
+RENDER = False
+INTERACTIVE = False
 
 while True:
     obs = environment.reset()
