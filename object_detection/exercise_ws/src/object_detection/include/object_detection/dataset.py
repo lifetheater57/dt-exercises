@@ -3,6 +3,16 @@ import numpy as np
 import tensorflow as tf
 tfds = tf.data.Dataset
 
+# To prevent the process to use all the VRAM if not necessary
+# Also, allow to use a RTX NVIDIA GPU
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+  try:
+    for gpu in gpus:
+      tf.config.experimental.set_memory_growth(gpu, True)
+  except RuntimeError as e:
+    print(e)
+
 class Dataset():
     def __init__(self, file_path_pattern="../dataset/*.npz"):
         # By convention, our non-background classes start counting at 1. Given
