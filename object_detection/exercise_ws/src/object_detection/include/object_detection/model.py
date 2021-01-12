@@ -31,14 +31,14 @@ class ModelNotTrained(RuntimeError):
 
 class Wrapper():
     def __init__(self, model_file=None):
-        # TODO If no GPU is available, raise the NoGPUAvailable exception
+        # If no GPU is available, raise the NoGPUAvailable exception
         if len(tf.config.list_physical_devices("GPU")) == 0:
             raise NoGPUAvailable()
 
-        # TODO Instantiate your model and other class instances here!
-        # TODO Don't forget to set your model in evaluation/testing/production mode, and sending it to the GPU
+        # Instantiate the prediction model
         self.model = Model(4)
 
+        # Use a particular file to load the TF Lite model if any
         if model_file is not None:
             if os.path.isfile(model_file):
                 self.model.tf_lite_model_path = model_file
@@ -46,17 +46,18 @@ class Wrapper():
                 print("WARNING: \"" + model_file + "\" does not exists.")
 
     def predict(self, batch_or_image):
-        # TODO Make your model predict here!
+        """Predict bounding boxes positions and their associated predicted
+        class and score.
 
-        # TODO The given batch_or_image parameter will be a numpy array (ie either a 224 x 224 x 3 image, or a
-        # TODO batch_size x 224 x 224 x 3 batch of images)
-        # TODO These images will be 224 x 224, but feel free to have any model, so long as it can handle these
-        # TODO dimensions. You could resize the images before predicting, make your model dimension-agnostic somehow,
-        # TODO etc.
+        Args:
+            batch_or_image: A numpy array (i.e. either a `224 x 224 x 3` image,
+            or a `batch_size x 224 x 224 x 3` batch of images)
 
-        # TODO This method should return a tuple of three lists of numpy arrays. The first is the bounding boxes, the
-        # TODO second is the corresponding labels, the third is the scores (the probabilities)
-        
+        Returns:
+            A tuple of three lists of numpy arrays. The first array is the
+            bounding boxes, the second is the corresponding labels, the third
+            is the scores.
+        """
         # Note that if using the @tf.function decorator the first frame will
         # trigger tracing of the tf.function, which will take some time, after 
         # which inference should be fast.
@@ -65,9 +66,8 @@ class Wrapper():
         boxes, labels, scores = self.model.detect(input_tensor)
         return boxes[0], labels[0], scores[0]
 
-class Model():    # TODO probably extend a TF or Pytorch class!
+class Model():
     def __init__(self, num_classes):
-        # TODO Instantiate your weights etc here!
         # Set the working directory to the current file's directory
         previous_dir = os.getcwd()
         current_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
@@ -137,7 +137,6 @@ class Model():    # TODO probably extend a TF or Pytorch class!
         # Set the working directory to the previous one
         os.chdir(previous_dir)
 
-    # TODO add your own functions if need be!
     # Again, uncomment this decorator if you want to run inference eagerly
     #@tf.function
     def detect(self, input_tensor):

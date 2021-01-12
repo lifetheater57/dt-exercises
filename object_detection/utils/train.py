@@ -32,8 +32,7 @@ if gpus:
 # https://github.com/tensorflow/models/blob/master/research/object_detection/colab_tutorials/eager_few_shot_od_training_tflite.ipynb
 
 def main():
-    # TODO train loop here!
-    
+    # Parse script arguments
     parser = argparse.ArgumentParser(description="train object detection model")
     
     parser.add_argument(
@@ -45,7 +44,7 @@ def main():
     
     args = parser.parse_args()
     
-    # Be sure to be in this file's directory
+    # Be sure to have the workspace in this file's directory
     os.chdir(current_dir)
 
     tf.keras.backend.clear_session()
@@ -139,6 +138,7 @@ def main():
 
         return train_step_fn
 
+    # Set the training optimizer and training function
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate, momentum=0.9)
     train_step_fn = get_model_train_step_function(
         detection_model, optimizer, to_fine_tune
@@ -146,10 +146,12 @@ def main():
 
     print('Start fine-tuning!', flush=True)
 
+    # Prepare the batches for the training
     ragged_batches = dataset.frames.apply(
         tf.data.experimental.dense_to_ragged_batch(batch_size=batch_size)
     )
 
+    # Training loop
     best_loss = 1e10
     step = 0
     for idx in range(num_epochs):
@@ -177,6 +179,7 @@ def main():
     
     print('Done fine-tuning!')
 
+    # Save resulting model
     last_ckpt_manager.save()
     ckpt_manager.save()
     
@@ -201,6 +204,7 @@ def main():
                 --saved_model_dir={tf_lite_dir}/saved_model \
                 --output_file={tf_lite_dir}/model.tflite")
 
+    # Copy the TF Lite model to the corresponding model checkpoint directories
     copy(f"{tf_lite_dir}/model.tflite", os.path.join(
         last_checkpoint_dir.replace(MODEL_PATH + "/", ""), "model.tflite"))
     copy(f"{tf_lite_dir}/model.tflite", os.path.join(
