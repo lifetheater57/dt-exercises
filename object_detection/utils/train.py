@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!python
 
 import os
 from shutil import copy
@@ -56,9 +56,9 @@ def main():
     detection_model = Model(dataset.num_classes).detection_model
 
     # This will be where we save checkpoint & config for TFLite conversion later.
-    output_directory = os.path.join(MODEL_PATH, 'output/')
-    last_checkpoint_dir = os.path.join(output_directory, 'checkpoint')
-    output_checkpoint_dir = os.path.join(output_directory, 'checkpoint_' + datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
+    output_dir = os.path.join(MODEL_PATH, 'output/')
+    last_checkpoint_dir = os.path.join(output_dir, 'checkpoint')
+    output_checkpoint_dir = os.path.join(output_dir, 'checkpoint_' + datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
     best_checkpoint_dir = os.path.join(output_checkpoint_dir, 'best_checkpoint_' + datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
 
     # To save checkpoint for TFLite conversion.
@@ -185,23 +185,26 @@ def main():
     
     os.chdir(MODEL_PATH)
     
+    # Change relative path to the output directory
+    output_dir = output_dir.replace(MODEL_PATH + "/", "")
+    pipeline_config_path = os.path.join(output_dir, "pipeline.config")
+    tf_lite_dir = os.path.join(output_dir, "tflite")
+
     # Generate a TFLite-friendly intermediate SavedModel.
     os.system(f"python models/export_tflite_graph_tf2.py \
-                --pipeline_config_path pipeline.config \
+                --pipeline_config_path {pipeline_config_path} \
                 --trained_checkpoint_dir output/checkpoint/ \
-                --output_directory tflite")
+                --output_directory {tf_lite_dir}")
 
     # Generate the final model from the intermediate model using TensorFlow Lite Converter. 
     os.system(f"tflite_convert \
-                --saved_model_dir=tflite/saved_model \
-                --output_file=tflite/model.tflite")
+                --saved_model_dir={tf_lite_dir}/saved_model \
+                --output_file={tf_lite_dir}/model.tflite")
 
-    copy("tflite/model.tflite", os.path.join(
-        last_checkpoint_dir.replace(MODEL_PATH + "/", ""), "model.tflite")
-    )
-    copy("tflite/model.tflite", os.path.join(
-        output_checkpoint_dir.replace(MODEL_PATH + "/", ""), "model.tflite")
-    )
+    copy(f"{tf_lite_dir}/model.tflite", os.path.join(
+        last_checkpoint_dir.replace(MODEL_PATH + "/", ""), "model.tflite"))
+    copy(f"{tf_lite_dir}/model.tflite", os.path.join(
+        output_checkpoint_dir.replace(MODEL_PATH + "/", ""), "model.tflite"))
 
     print("Done converting model to TF Lite.")
 

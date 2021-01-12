@@ -73,7 +73,8 @@ class Model():    # TODO probably extend a TF or Pytorch class!
         current_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
         os.chdir(current_dir)
         
-        self.tf_lite_model_path = os.path.join(current_dir, "tflite/model.tflite")
+        output_dir = os.path.join(current_dir, "output/")
+        self.tf_lite_model_path = os.path.join(output_dir, "tflite/model.tflite")
         
         # Fetch the base model and prepares it.
         subprocess.call(f"bash ./fetch_model.sh", shell=True)
@@ -101,7 +102,7 @@ class Model():    # TODO probably extend a TF or Pytorch class!
         
         # Save new pipeline config
         pipeline_proto = config_util.create_pipeline_proto_from_configs(configs)
-        config_util.save_pipeline_config(pipeline_proto, ".")
+        config_util.save_pipeline_config(pipeline_proto, output_dir)
 
         # Set up object-based checkpoint restore --- SSD has two prediction
         # `heads` --- one for classification, the other for box regression. We
