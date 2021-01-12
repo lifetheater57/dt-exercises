@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 
 import os
+from shutil import copy
 from datetime import datetime
 import argparse
 import numpy as np
 
 import tensorflow as tf
-tfds = tf.data.Dataset
 
+import inspect
 import sys
-sys.path.insert(0, "..")
+current_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
 from exercise_ws.src.object_detection.include.object_detection.model import Model
+from exercise_ws.src.object_detection.include.object_detection.dataset import Dataset
+
 MODEL_PATH="../exercise_ws/src/object_detection/include/object_detection"
 
 # To prevent the process to use all the VRAM if not necessary
@@ -26,85 +31,6 @@ if gpus:
 # Most of the current script is an adaptation from this colab tutorial
 # https://github.com/tensorflow/models/blob/master/research/object_detection/colab_tutorials/eager_few_shot_od_training_tflite.ipynb
 
-def prepareDataset(file_path_pattern="../dataset/*.npz"):
-    # By convention, our non-background classes start counting at 1. Given
-    # that we will be predicting just one class, we will therefore assign it a
-    # `class id` of 1.
-    class_id = {
-        "duckie" : 1,
-        "cone" : 2,
-        "truck" : 3,
-        "bus" : 4,
-    }
-
-    category_index = {
-        class_id["duckie"] : {
-            "id" : class_id["duckie"],
-            "name" : "duckie",
-        },
-        class_id["cone"] : {
-            "id" : class_id["cone"],
-            "name" : "cone",
-        },
-        class_id["truck"] : {
-            "id" : class_id["truck"],
-            "name" : "truck",
-        },
-        class_id["bus"] : {
-            "id" : class_id["bus"],
-            "name" : "bus",
-        },
-    }
-
-    num_classes = len(class_id)
-
-    # Convert class labels to one-hot; convert everything to tensors.
-    # The `label_id_offset` here shifts all classes by a certain number of indices;
-    # we do this here so that the model receives one-hot labels where non-background
-    # classes start counting at the zeroth index.  This is ordinarily just handled
-    # automatically in our training binaries, but we need to reproduce it here.
-    label_id_offset = 1
-
-    def prepare_frames(filename_tensor):
-        filename = bytes.decode(filename_tensor.numpy())
-        example = np.load(filename)
-
-        train_image_np = example["arr_0"]
-        boxes_np = example["arr_1"]
-        class_np = example["arr_2"]
-
-        image_tensor = tf.convert_to_tensor(train_image_np, dtype=tf.float32)
-
-        boxes_np = boxes_np[:, [1, 0, 3, 2]]
-        boxes_np[:, [0, 2]] /= train_image_np.shape[-3]
-        boxes_np[:, [1, 3]] /= train_image_np.shape[-2]
-        boxes_tensor = tf.convert_to_tensor(boxes_np, dtype=tf.float32)
-
-        zero_indexed_groundtruth_classes = tf.convert_to_tensor(
-            class_np.squeeze(axis=1), dtype=tf.int32)
-        zero_indexed_groundtruth_classes -= label_id_offset
-        
-        gt_classes_one_hot_tensor = tf.one_hot(
-            zero_indexed_groundtruth_classes, num_classes)
-        
-        return image_tensor, boxes_tensor, gt_classes_one_hot_tensor
-
-    def set_shapes(image, boxes, classes):
-        image.set_shape((None, None, 3))
-        boxes.set_shape((None, 4))
-        classes.set_shape((None, num_classes))
-        
-        return image, boxes, classes
-
-    file_list = tfds.list_files(file_path_pattern)
-    frame_ds = file_list.map(lambda x: tf.py_function(prepare_frames, [x], [tf.float32, tf.float32, tf.float32]))
-    frame_ds = frame_ds.map(set_shapes)
-    frame_ds = frame_ds.shuffle(1000, reshuffle_each_iteration=True)
-
-    print('Done prepping data.')
-
-    return frame_ds, class_id, category_index
-
 def main():
     # TODO train loop here!
     
@@ -119,16 +45,18 @@ def main():
     
     args = parser.parse_args()
     
+    # Be sure to be in this file's directory
+    os.chdir(current_dir)
+
     tf.keras.backend.clear_session()
 
     # Preparing the dataset
-    frame_ds, class_id, category_index = prepareDataset()
-    num_classes = len(class_id)
+    dataset = Dataset()
     
-    detection_model = Model(num_classes).detection_model
+    detection_model = Model(dataset.num_classes).detection_model
 
     # This will be where we save checkpoint & config for TFLite conversion later.
-    output_directory = 'output/'
+    output_directory = os.path.join(MODEL_PATH, 'output/')
     last_checkpoint_dir = os.path.join(output_directory, 'checkpoint')
     output_checkpoint_dir = os.path.join(output_directory, 'checkpoint_' + datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
     best_checkpoint_dir = os.path.join(output_checkpoint_dir, 'best_checkpoint_' + datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
@@ -154,7 +82,7 @@ def main():
     # Define training config
     batch_size = 16
     learning_rate = 0.15
-    num_epochs = 0
+    num_epochs = 1
 
     # Restore previous training if required
     if args.checkpoint is not None:
@@ -218,7 +146,7 @@ def main():
 
     print('Start fine-tuning!', flush=True)
 
-    ragged_batches = frame_ds.apply(
+    ragged_batches = dataset.frames.apply(
         tf.data.experimental.dense_to_ragged_batch(batch_size=batch_size)
     )
 
@@ -232,7 +160,7 @@ def main():
             gt_boxes_list = [tensor for tensor in gt_boxes]
             gt_classes_list = [tensor for tensor in gt_classes]
             
-            # Training step (forward pass + backwards pass)
+            # Training step (forward pass + backward pass)
             total_loss = train_step_fn(preprocessed_images, gt_boxes_list, gt_classes_list)
 
             if step % 10 == 0:
@@ -253,17 +181,30 @@ def main():
     ckpt_manager.save()
     
     print('Checkpoint saved!')
+    print("Start converting model to TF Lite.")
+    
+    os.chdir(MODEL_PATH)
+    
+    # Generate a TFLite-friendly intermediate SavedModel.
+    os.system(f"python models/export_tflite_graph_tf2.py \
+                --pipeline_config_path pipeline.config \
+                --trained_checkpoint_dir output/checkpoint/ \
+                --output_directory tflite")
+
+    # Generate the final model from the intermediate model using TensorFlow Lite Converter. 
+    os.system(f"tflite_convert \
+                --saved_model_dir=tflite/saved_model \
+                --output_file=tflite/model.tflite")
+
+    copy("tflite/model.tflite", os.path.join(
+        last_checkpoint_dir.replace(MODEL_PATH + "/", ""), "model.tflite")
+    )
+    copy("tflite/model.tflite", os.path.join(
+        output_checkpoint_dir.replace(MODEL_PATH + "/", ""), "model.tflite")
+    )
+
+    print("Done converting model to TF Lite.")
 
 if __name__ == "__main__":
     main()
     
-    # Generate a TFLite-friendly intermediate SavedModel.
-    os.system(f"models/research/object_detection/export_tflite_graph_tf2.py \
-                --pipeline_config_path {MODEL_PATH}/pipeline.config \
-                --trained_checkpoint_dir output/checkpoint/ \
-                --output_directory {MODEL_PATH}/tflite")
-
-    # Generate the final model from the intermediate model using TensorFlow Lite Converter. 
-    os.system(f"tflite_convert \
-                --saved_model_dir={MODEL_PATH}/tflite/saved_model \
-                --output_file={MODEL_PATH}/tflite/model.tflite")
