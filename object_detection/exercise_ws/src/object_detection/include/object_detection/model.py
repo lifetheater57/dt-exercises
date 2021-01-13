@@ -64,6 +64,9 @@ class Wrapper():
 
         input_tensor = tf.convert_to_tensor(batch_or_image, dtype=tf.float32)
         boxes, labels, scores = self.model.detect(input_tensor)
+        
+        boxes = boxes[:, :, [1, 0, 3, 2]]
+            
         return boxes[0], labels[0], scores[0]
 
 class Model():
